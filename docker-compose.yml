@@ -1,0 +1,90 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: petstore
+      POSTGRES_PASSWORD: petstore
+      POSTGRES_DB: petstore
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U petstore -d petstore"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  catalog-service:
+    build: ./services/catalog-service
+    environment:
+      DB_HOST: postgres
+      DB_USER: petstore
+      DB_PASSWORD: petstore
+      DB_NAME: petstore
+      PORT: "3001"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payments-service:
+    build: ./services/payments-service
+    environment:
+      PORT: "8080"
+      FAILURE_RATE: "0.10"      # 10% of charges decline
+      MAX_LATENCY_MS: "800"
+    ports:
+      - "8080:8080"
+
+  orders-service:
+    build: ./services/orders-service
+    environment:
+      DB_HOST: postgres
+      DB_USER: petstore
+      DB_PASSWORD: petstore
+      DB_NAME: petstore
+      CATALOG_URL: http://catalog-service:3001
+      PAYMENTS_URL: http://payments-service:8080
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      catalog-service:
+        condition: service_started
+      payments-service:
+        condition: service_started
+
+  api-gateway:
+    build: ./services/api-gateway
+    environment:
+      CATALOG_URL: http://catalog-service:3001
+      ORDERS_URL: http://orders-service:8001
+    ports:
+      - "8000:8000"
+    depends_on:
+      - catalog-service
+      - orders-service
+
+  frontend:
+    build: ./services/frontend
+    environment:
+      API_GATEWAY_URL: http://api-gateway:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+
+  # Load generator — disabled by default. Start with:
+  #   docker compose --profile load up -d load-generator
+  load-generator:
+    build: ./services/load-generator
+    depends_on:
+      - frontend
+    profiles: ["load"]
+
+volumes:
+  pgdata:

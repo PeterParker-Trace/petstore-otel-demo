@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PetStore</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { color: #2c3e50; }
+    .pets { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+    .pet { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; }
+    .pet h3 { margin: 0 0 .25rem; }
+    .pet .price { color: #27ae60; font-weight: bold; }
+    .pet .stock { color: #888; font-size: .9rem; }
+    button { background: #3498db; color: white; border: 0; padding: .5rem 1rem; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #2980b9; }
+    button:disabled { background: #ccc; }
+    #status { padding: 1rem; margin: 1rem 0; border-radius: 4px; display: none; }
+    #status.success { background: #d4edda; color: #155724; display: block; }
+    #status.error   { background: #f8d7da; color: #721c24; display: block; }
+  </style>
+</head>
+<body>
+  <h1>🐾 PetStore</h1>
+  <p>An OpenTelemetry demo app by Coralogix</p>
+  <div id="status"></div>
+  <div class="pets" id="pets">Loading...</div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    function showStatus(msg, ok) {
+      statusEl.textContent = msg;
+      statusEl.className = ok ? 'success' : 'error';
+      setTimeout(() => statusEl.className = '', 4000);
+    }
+
+    // Defensively format error responses from any backend shape.
+    // Handles: plain string, {detail: "string"}, {detail: [{msg, loc}, ...]} (FastAPI 422),
+    // arbitrary {detail: {...}} object, or anything else by JSON-stringifying it.
+    function formatError(data) {
+      if (!data) return 'unknown error';
+      if (typeof data === 'string') return data;
+      if (typeof data.detail === 'string') return data.detail;
+      if (Array.isArray(data.detail)) {
+        // FastAPI validation error: array of {msg, loc, type}
+        return data.detail.map(e => `${e.loc?.join('.') || 'field'}: ${e.msg}`).join('; ');
+      }
+      if (typeof data.detail === 'object') return JSON.stringify(data.detail);
+      return JSON.stringify(data);
+    }
+
+    async function loadPets() {
+      const res = await fetch('/api/pets');
+      const pets = await res.json();
+      document.getElementById('pets').innerHTML = pets.map(p => `
+        <div class="pet">
+          <h3>${p.name}</h3>
+          <div>${p.species}</div>
+          <div class="price">$${(p.price_cents / 100).toFixed(2)}</div>
+          <div class="stock">In stock: ${p.stock}</div>
+          <button onclick="buy(${p.id})" ${p.stock === 0 ? 'disabled' : ''}>Buy</button>
+        </div>
+      `).join('');
+    }
+
+    async function buy(petId) {
+      try {
+        const res = await fetch('/api/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pet_id: petId, quantity: 1, customer_email: 'demo@example.com' }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showStatus(`Order ${data.order_id} confirmed! Total: $${(data.total_cents/100).toFixed(2)}`, true);
+          loadPets();
+        } else {
+          showStatus(`Order failed: ${formatError(data)}`, false);
+        }
+      } catch (e) {
+        showStatus(`Network error: ${e.message}`, false);
+      }
+    }
+
+    loadPets();
+  </script>
+</body>
+</html>
