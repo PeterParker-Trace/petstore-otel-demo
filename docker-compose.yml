@@ -1,4 +1,19 @@
 services:
+  # =====================================================================
+  # OpenTelemetry Collector — receives telemetry from all services and
+  # exports it (currently to stdout via the debug exporter for learning).
+  # In Phase 3 we'll add the Coralogix exporter alongside debug.
+  # =====================================================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "13133:13133" # health_check (reserved for future)
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -24,20 +39,38 @@ services:
       DB_PASSWORD: petstore
       DB_NAME: petstore
       PORT: "3001"
+      # === OTEL env vars ===
+      OTEL_SERVICE_NAME: catalog-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: "service.namespace=petstore,service.version=1.0.0"
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      NODE_OPTIONS: "--require @opentelemetry/auto-instrumentations-node/register"
     ports:
       - "3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
 
   payments-service:
     build: ./services/payments-service
     environment:
       PORT: "8080"
-      FAILURE_RATE: "0.10"      # 10% of charges decline
+      FAILURE_RATE: "0.10"
       MAX_LATENCY_MS: "800"
+      OTEL_SERVICE_NAME: payments-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: "service.namespace=petstore,service.version=1.0.0"
     ports:
       - "8080:8080"
+    depends_on:
+      otel-collector:
+        condition: service_started
 
   orders-service:
     build: ./services/orders-service
@@ -48,6 +81,14 @@ services:
       DB_NAME: petstore
       CATALOG_URL: http://catalog-service:3001
       PAYMENTS_URL: http://payments-service:8080
+      OTEL_SERVICE_NAME: orders-service
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: "service.namespace=petstore,service.version=1.0.0"
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
     ports:
       - "8001:8001"
     depends_on:
@@ -57,29 +98,47 @@ services:
         condition: service_started
       payments-service:
         condition: service_started
+      otel-collector:
+        condition: service_started
 
   api-gateway:
     build: ./services/api-gateway
     environment:
       CATALOG_URL: http://catalog-service:3001
       ORDERS_URL: http://orders-service:8001
+      OTEL_SERVICE_NAME: api-gateway
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: "service.namespace=petstore,service.version=1.0.0"
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
     ports:
       - "8000:8000"
     depends_on:
       - catalog-service
       - orders-service
+      - otel-collector
 
   frontend:
     build: ./services/frontend
     environment:
       API_GATEWAY_URL: http://api-gateway:8000
+      OTEL_SERVICE_NAME: frontend
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_RESOURCE_ATTRIBUTES: "service.namespace=petstore,service.version=1.0.0"
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      NODE_OPTIONS: "--require @opentelemetry/auto-instrumentations-node/register"
     ports:
       - "3000:3000"
     depends_on:
       - api-gateway
+      - otel-collector
 
-  # Load generator — disabled by default. Start with:
-  #   docker compose --profile load up -d load-generator
   load-generator:
     build: ./services/load-generator
     depends_on:
