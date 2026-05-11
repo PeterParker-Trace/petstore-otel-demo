@@ -1,18 +1,16 @@
 services:
-  # =====================================================================
-  # OpenTelemetry Collector — receives telemetry from all services and
-  # exports it (currently to stdout via the debug exporter for learning).
-  # In Phase 3 we'll add the Coralogix exporter alongside debug.
-  # =====================================================================
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.111.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otel/collector-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "13133:13133" # health_check (reserved for future)
+      - "4317:4317"
+      - "4318:4318"
+      - "8888:8888"     # Collector self-metrics — newly exposed
+      - "13133:13133"
+    environment:
+      CORALOGIX_PRIVATE_KEY: ${CORALOGIX_PRIVATE_KEY}
 
   postgres:
     image: postgres:16-alpine
@@ -39,7 +37,6 @@ services:
       DB_PASSWORD: petstore
       DB_NAME: petstore
       PORT: "3001"
-      # === OTEL env vars ===
       OTEL_SERVICE_NAME: catalog-service
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf

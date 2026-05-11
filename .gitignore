@@ -7,3 +7,13 @@ __pycache__/
 *.log
 .idea/
 .vscode/
+
+# Terraform — never commit state or local tfvars
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+*.tfvars  # except *.tfvars.example which we explicitly allow below
+!*.tfvars.example

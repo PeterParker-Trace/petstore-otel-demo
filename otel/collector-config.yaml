@@ -1,41 +1,25 @@
-# OpenTelemetry Collector configuration — local development.
-# This config receives telemetry from all services via OTLP and prints it to the
-# Collector's stdout (visible in `docker compose logs otel-collector`).
-#
-# In Phase 3 we'll add the Coralogix exporter alongside the debug one.
-#
-# Three sections every Collector config has:
-#   receivers — how data gets IN to the Collector
-#   processors — what to do with it in flight (batching, attribute manipulation, etc.)
-#   exporters — where data gets sent OUT
-# Then a `service` section wires them together into pipelines, one per signal type.
+# OpenTelemetry Collector configuration — Phase 3 diagnostic version.
+# Coralogix-only (no debug fallback) so any export failure surfaces immediately.
+# Verbose self-telemetry so we can monitor exporter health from outside.
 
 receivers:
-  # OTLP is the OpenTelemetry native protocol. Apps send to the Collector via this.
-  # We listen on both gRPC (port 4317) and HTTP (port 4318) — the two transport options.
-  # Most SDKs default to gRPC; some browser SDKs require HTTP.
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
-        # CORS so a future browser-based SDK could send directly if desired
         cors:
           allowed_origins:
             - "http://localhost:*"
             - "http://127.0.0.1:*"
 
 processors:
-  # Batch processor groups telemetry into batches before sending to exporters.
-  # Vastly more efficient than sending per-span/per-log. Critical in production.
   batch:
     timeout: 1s
-    send_batch_size: 512
+    send_batch_size: 1024
+    send_batch_max_size: 2048
 
-  # Resource processor attaches static attributes to ALL telemetry passing through.
-  # Things like environment name, deployment region, etc.
-  # Useful for filtering in your backend ("show me only prod data").
   resource:
     attributes:
       - key: deployment.environment
@@ -43,38 +27,49 @@ processors:
         action: upsert
 
 exporters:
-  # The "debug" exporter prints telemetry to the Collector's stdout.
-  # Verbosity options: basic, normal, detailed.
-  #   basic   — just counts ("3 spans received")
-  #   normal  — span/log names and key fields
-  #   detailed — full payload (verbose, but great for learning what OTEL emits)
-  # We'll use 'detailed' for now since this is a teaching exercise.
-  debug:
-    verbosity: detailed
-    sampling_initial: 5      # Print first 5 of any kind, then sample
-    sampling_thereafter: 50  # After that, every 50th to avoid log flooding
+  coralogix:
+    domain: "eu2.coralogix.com"
+    private_key: "${env:CORALOGIX_PRIVATE_KEY}"
+    application_name: "petstore"
+    subsystem_name: "default"
+    application_name_attributes:
+      - "service.namespace"
+    subsystem_name_attributes:
+      - "service.name"
+    timeout: "30s"
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 5000
 
 service:
   pipelines:
-    # One pipeline per signal type. Each routes data:
-    #   receiver(s)  → processor(s) → exporter(s)
-
     traces:
       receivers: [otlp]
       processors: [resource, batch]
-      exporters: [debug]
+      exporters: [coralogix]
 
     metrics:
       receivers: [otlp]
       processors: [resource, batch]
-      exporters: [debug]
+      exporters: [coralogix]
 
     logs:
       receivers: [otlp]
       processors: [resource, batch]
-      exporters: [debug]
+      exporters: [coralogix]
 
-  # Useful telemetry about the Collector itself. Helps debug "is the Collector receiving anything?"
   telemetry:
+    # Bump to debug so we see WHY exporters fail to load.
     logs:
-      level: info
+      level: debug
+    # Expose self-metrics on 0.0.0.0:8888 (instead of localhost-only).
+    # We map this port in docker-compose so we can hit it from the Mac.
+    metrics:
+      address: 0.0.0.0:8888
+      level: detailed
