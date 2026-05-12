@@ -49,6 +49,7 @@ locals {
     "catalog-service",
     "orders-service",
     "payments-service",
+    "postgres",
   ]
 }
 

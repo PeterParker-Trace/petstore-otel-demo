@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # All 5 services we need to build.
-ALL_SERVICES=("frontend" "api-gateway" "catalog-service" "orders-service" "payments-service")
+ALL_SERVICES=("frontend" "api-gateway" "catalog-service" "orders-service" "payments-service" "postgres")
 
 # If a specific service was passed as an argument, only build that one.
 if [[ $# -gt 0 ]]; then

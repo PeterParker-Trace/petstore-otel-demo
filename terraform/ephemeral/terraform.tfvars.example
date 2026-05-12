@@ -1,0 +1,10 @@
+# Copy this to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+owner      = "roy"
+aws_region = "eu-north-1"
+
+# Optional overrides — defaults work fine for our demo
+# instance_type        = "m6g.large"
+# asg_desired_capacity = 1
+# asg_max_size         = 2
+# vpc_cidr             = "10.0.0.0/16"
